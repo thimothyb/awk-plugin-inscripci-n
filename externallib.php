@@ -198,8 +198,16 @@ class enrol_courseapproval_external extends external_api
     public static function get_course_logs_parameters()
     {
         return new external_function_parameters([
-            'courseid' => new external_value(PARAM_INT, 'Course ID'),
-            'since'    => new external_value(PARAM_INT, 'Unix timestamp — only return entries after this', VALUE_DEFAULT, 0),
+            'courseid'  => new external_value(PARAM_INT, 'Course ID'),
+            'since'     => new external_value(PARAM_INT, 'Unix timestamp — only return entries after this', VALUE_DEFAULT, 0),
+            'date'      => new external_value(PARAM_INT, 'Alias for since', VALUE_DEFAULT, 0),
+            'userid'    => new external_value(PARAM_INT, 'Filter by user ID (0 = all users)', VALUE_DEFAULT, 0),
+            'courseids' => new external_multiple_structure(
+                new external_value(PARAM_INT, 'Course ID'),
+                'Array of course IDs (ignored, use courseid)',
+                VALUE_DEFAULT,
+                []
+            ),
         ]);
     }
 
@@ -207,28 +215,50 @@ class enrol_courseapproval_external extends external_api
      * Returns all log events for a course from logstore_standard_log since a given timestamp.
      * Used by the attendance dashboard to reconstruct real session times (entry + exit per day).
      */
-    public static function get_course_logs($courseid, $since = 0)
+    public static function get_course_logs($courseid, $since = 0, $date = 0, $userid = 0, $courseids = [])
     {
         global $DB;
 
         $params = self::validate_parameters(self::get_course_logs_parameters(), [
-            'courseid' => $courseid,
-            'since'    => $since,
+            'courseid'  => $courseid,
+            'since'     => $since,
+            'date'      => $date,
+            'userid'    => $userid,
+            'courseids' => $courseids,
         ]);
+
+        // Acepta 'date' como alias de 'since' para compatibilidad con el servidor.
+        if (empty($params['since']) && !empty($params['date'])) {
+            $params['since'] = $params['date'];
+        }
 
         $context = context_course::instance($params['courseid']);
         self::validate_context($context);
         require_capability('enrol/courseapproval:config', $context);
 
+        // OJO: get_records_select() indexa el array por la PRIMERA columna del SELECT.
+        // Por eso 'id' (clave primaria, única) va primero. Si 'userid' fuera la primera
+        // columna, todos los eventos del mismo usuario se sobrescribirían entre sí y solo
+        // sobreviviría UNO → entrada == salida == 0 minutos en el dashboard.
         $records = $DB->get_records_select(
             'logstore_standard_log',
             'courseid = :courseid AND timecreated >= :since',
             ['courseid' => $params['courseid'], 'since' => $params['since']],
             'timecreated ASC',
-            'userid, timecreated'
+            'id, userid, timecreated'
         );
 
-        return array_values((array) $records);
+        // Mapeo a objetos limpios {userid, timecreated} para que el 'id' extra no rompa
+        // la validación de get_course_logs_returns().
+        $result = [];
+        foreach ($records as $record) {
+            $result[] = [
+                'userid'      => (int) $record->userid,
+                'timecreated' => (int) $record->timecreated,
+            ];
+        }
+
+        return $result;
     }
 
     public static function get_course_logs_returns()
