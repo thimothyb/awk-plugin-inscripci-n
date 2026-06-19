@@ -28,6 +28,7 @@ $PAGE->set_heading(get_string('bulkenrol', 'enrol_courseapproval'));
 if (optional_param('submitbutton', null, PARAM_TEXT)) {
 
     $destcourse = optional_param('destcourse', 0, PARAM_INT);
+    $sourcecourse = optional_param('sourcecourse', 0, PARAM_INT);
     $userids = [];
 
     // Recorremos todos los datos crudos enviados por el navegador
@@ -42,8 +43,8 @@ if (optional_param('submitbutton', null, PARAM_TEXT)) {
     }
 
     if ($destcourse > 0 && !empty($userids)) {
-        // Realizar la inscripción directamente
-        $results = enrol_courseapproval_bulk_enrol($destcourse, $userids);
+        // Realizar la inscripción directamente (heredando grupos del curso origen).
+        $results = enrol_courseapproval_bulk_enrol($destcourse, $userids, $sourcecourse);
 
         $message = get_string('enrolsuccess', 'enrol_courseapproval', (object) $results);
         \core\notification::success($message);

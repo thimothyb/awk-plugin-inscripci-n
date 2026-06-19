@@ -256,6 +256,57 @@ class enrol_courseapproval_plugin extends enrol_plugin
     }
 
     /**
+     * Replica la membresía de grupos del usuario desde el curso origen al curso destino.
+     *
+     * Por cada grupo al que pertenece el usuario en el curso origen, se asegura de que
+     * exista un grupo con el mismo nombre en el curso destino (lo crea si no existe) y
+     * añade al usuario a dicho grupo. Si el usuario ya es miembro, no hace nada.
+     *
+     * @param int $sourcecourseid Curso origen del que se heredan los grupos.
+     * @param int $destcourseid   Curso destino donde se replican los grupos.
+     * @param int $userid         Usuario a sincronizar.
+     */
+    public function sync_user_groups($sourcecourseid, $destcourseid, $userid)
+    {
+        global $CFG, $DB;
+
+        if (empty($sourcecourseid) || empty($destcourseid) || empty($userid)) {
+            return;
+        }
+
+        require_once($CFG->dirroot . '/group/lib.php');
+
+        // Grupos del curso origen a los que pertenece el usuario.
+        $sourcegroups = groups_get_all_groups($sourcecourseid, $userid);
+        if (empty($sourcegroups)) {
+            return;
+        }
+
+        foreach ($sourcegroups as $sourcegroup) {
+            // Buscar un grupo con el mismo nombre en el curso destino.
+            $destgroup = $DB->get_record('groups', [
+                'courseid' => $destcourseid,
+                'name'     => $sourcegroup->name,
+            ]);
+
+            if ($destgroup) {
+                $destgroupid = $destgroup->id;
+            } else {
+                // Crear el grupo en el destino conservando nombre y descripción.
+                $newgroup = new stdClass();
+                $newgroup->courseid          = $destcourseid;
+                $newgroup->name              = $sourcegroup->name;
+                $newgroup->description       = $sourcegroup->description;
+                $newgroup->descriptionformat = $sourcegroup->descriptionformat;
+                $destgroupid = groups_create_group($newgroup);
+            }
+
+            // Añadir al usuario al grupo destino (no hace nada si ya es miembro).
+            groups_add_member($destgroupid, $userid);
+        }
+    }
+
+    /**
      * Logic to enrol user or queue them.
      * @param int $destcourseid
      * @param int $userid
@@ -283,6 +334,9 @@ class enrol_courseapproval_plugin extends enrol_plugin
             $roleid = !empty($instance->roleid) ? $instance->roleid : $this->get_config('roleid', 5);
 
             $this->enrol_user($instance, $userid, $roleid);
+
+            // Heredar los grupos del curso origen al curso destino.
+            $this->sync_user_groups($instance->customint1, $destcourseid, $userid);
 
             // If they were pending, remove them.
             $DB->delete_records('enrol_courseapproval_pending', [
@@ -415,9 +469,10 @@ function enrol_courseapproval_get_source_users($courseid)
  * Bulk enrol users in a destination course using the manual enrolment plugin.
  * @param int $destcourseid
  * @param array $userids
+ * @param int $sourcecourseid Curso origen del que se heredan los grupos (0 = no heredar).
  * @return array Results summary
  */
-function enrol_courseapproval_bulk_enrol($destcourseid, array $userids)
+function enrol_courseapproval_bulk_enrol($destcourseid, array $userids, $sourcecourseid = 0)
 {
     global $DB;
     $results = ['success' => 0, 'skipped' => 0, 'error' => 0];
@@ -426,6 +481,9 @@ function enrol_courseapproval_bulk_enrol($destcourseid, array $userids)
     if (!$enrol) {
         return $results;
     }
+
+    // Instancia del plugin courseapproval para heredar grupos del curso origen.
+    $caplugin = enrol_get_plugin('courseapproval');
 
     // Find or create manual enrolment instance in destination course.
     $instance = $DB->get_record('enrol', ['courseid' => $destcourseid, 'enrol' => 'manual'], '*', IGNORE_MISSING);
@@ -447,6 +505,12 @@ function enrol_courseapproval_bulk_enrol($destcourseid, array $userids)
 
         try {
             $enrol->enrol_user($instance, $userid, $roleid);
+
+            // Heredar los grupos del curso origen si se especificó uno.
+            if (!empty($sourcecourseid) && $caplugin) {
+                $caplugin->sync_user_groups($sourcecourseid, $destcourseid, $userid);
+            }
+
             $results['success']++;
         } catch (Exception $e) {
             $results['error']++;

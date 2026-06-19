@@ -9,7 +9,7 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->version = 2026021104;        // The current plugin version (Date: YYYYMMDDXX).
+$plugin->version = 2026061801;        // The current plugin version (Date: YYYYMMDDXX).
 $plugin->requires = 2022111800;        // Requires this Moodle version (Moodle 4.1).
 $plugin->component = 'enrol_courseapproval'; // Full name of the plugin (used for diagnostics, dependency-tracking, etc.).
 $plugin->release = '1.0.3 (Build: 20260213)';

@@ -47,6 +47,9 @@ class process_enrollments extends \core\task\scheduled_task
                 if ($instance && $instance->status == ENROL_INSTANCE_ENABLED) {
                     $roleid = $plugin->get_config('roleid', 5);
                     $plugin->enrol_user($instance, $record->userid, $roleid);
+
+                    // Heredar los grupos del curso origen al curso destino.
+                    $plugin->sync_user_groups($instance->customint1, $record->courseid, $record->userid);
                 }
 
                 // Remove from pending table.
